@@ -70,7 +70,8 @@ QemuVirtMemInfoPeiLibConstructor (
         DEBUG ((DEBUG_INFO, "%a: System RAM @ 0x%lx - 0x%lx\n",
           __FUNCTION__, CurBase, CurBase + CurSize - 1));
 
-        if (NewBase > CurBase || NewBase == 0) {
+        if (NewBase > CurBase || NewBase == 0 ||
+           (NewSize < SIZE_128MB && NewSize < CurSize)) {
           NewBase = CurBase;
           NewSize = CurSize;
         }
