@@ -29,13 +29,13 @@ NorFlashPlatformInitialization (
 }
 
 NOR_FLASH_DESCRIPTION mNorFlashDevices[] = {
-  {
+/*  {
     QEMU_NOR0_BASE,
     QEMU_NOR0_BASE,
     QEMU_NOR0_SIZE,
     QEMU_NOR_BLOCK_SIZE,
     {0xF9B94AE2, 0x8BA6, 0x409B, {0x9D, 0x56, 0xB9, 0xB4, 0x17, 0xF5, 0x3C, 0xB3}}
-  }, {
+  },*/ {
     QEMU_NOR1_BASE,
     QEMU_NOR1_BASE,
     QEMU_NOR1_SIZE,
