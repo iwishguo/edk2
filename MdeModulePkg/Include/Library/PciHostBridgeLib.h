@@ -22,6 +22,7 @@
 typedef struct {
   UINT64 Base;
   UINT64 Limit;
+  UINT64 Translation;
 } PCI_ROOT_BRIDGE_APERTURE;
 
 typedef struct {
