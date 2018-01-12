@@ -73,6 +73,11 @@ typedef struct {
   PCI_ROOT_BRIDGE_APERTURE          PMem;
   PCI_ROOT_BRIDGE_APERTURE          MemAbove4G;
   PCI_ROOT_BRIDGE_APERTURE          PMemAbove4G;
+  UINT64                            IoTranslation;
+  UINT64                            MemTranslation;
+  UINT64                            MemAbove4GTranslation;
+  UINT64                            PMemTranslation;
+  UINT64                            PMemAbove4GTranslation;
   BOOLEAN                           DmaAbove4G;
   BOOLEAN                           NoExtendedConfigSpace;
   VOID                              *ConfigBuffer;
@@ -98,7 +103,8 @@ typedef struct {
 **/
 PCI_ROOT_BRIDGE_INSTANCE *
 CreateRootBridge (
-  IN PCI_ROOT_BRIDGE       *Bridge
+  IN PCI_ROOT_BRIDGE                *Bridge,
+  IN PCI_ROOT_BRIDGE_TRANSLATION    *Translation
   );
 
 //

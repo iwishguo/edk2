@@ -360,6 +360,16 @@ PciHostBridgeGetRootBridges (
   return &mRootBridge;
 }
 
+PCI_ROOT_BRIDGE_TRANSLATION *
+EFIAPI
+PciHostBridgeGetTranslations (
+  UINTN *Count
+  )
+{
+  *Count = 0;
+  return NULL;
+}
+
 /**
   Free the root bridge instances array returned from
   PciHostBridgeGetRootBridges().
@@ -375,6 +385,15 @@ PciHostBridgeFreeRootBridges (
   )
 {
   ASSERT (Count == 1);
+}
+
+VOID
+EFIAPI
+PciHostBridgeFreeTranslations (
+  PCI_ROOT_BRIDGE_TRANSLATION *Translations,
+  UINTN                       Count
+  )
+{
 }
 
 /**

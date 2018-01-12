@@ -53,6 +53,14 @@ typedef struct {
   EFI_DEVICE_PATH_PROTOCOL *DevicePath;           ///< Device path.
 } PCI_ROOT_BRIDGE;
 
+typedef struct {
+  UINT64                   IoTranslation;
+  UINT64                   MemTranslation;
+  UINT64                   MemAbove4GTranslation;
+  UINT64                   PMemTranslation;
+  UINT64                   PMemAbove4GTranslation;
+} PCI_ROOT_BRIDGE_TRANSLATION;
+
 /**
   Return all the root bridge instances in an array.
 
@@ -69,6 +77,21 @@ PciHostBridgeGetRootBridges (
   );
 
 /**
+  Return all the root bridge instances in an array.
+
+  @param Count  Return the count of root bridge instances.
+
+  @return All the root bridge instances in an array.
+          The array should be passed into PciHostBridgeFreeRootBridges()
+          when it's not used.
+**/
+PCI_ROOT_BRIDGE_TRANSLATION *
+EFIAPI
+PciHostBridgeGetTranslations (
+  UINTN *Count
+  );
+
+/**
   Free the root bridge instances array returned from PciHostBridgeGetRootBridges().
 
   @param Bridges The root bridge instances array.
@@ -79,6 +102,19 @@ EFIAPI
 PciHostBridgeFreeRootBridges (
   PCI_ROOT_BRIDGE *Bridges,
   UINTN           Count
+  );
+
+/**
+  Free the root bridge instances array returned from PciHostBridgeGetRootBridges().
+
+  @param Bridges The root bridge instances array.
+  @param Count   The count of the array.
+**/
+VOID
+EFIAPI
+PciHostBridgeFreeTranslations (
+  PCI_ROOT_BRIDGE_TRANSLATION  *Bridges,
+  UINTN                        Count
   );
 
 /**

@@ -67,7 +67,8 @@ UINT8 mOutStride[] = {
 **/
 PCI_ROOT_BRIDGE_INSTANCE *
 CreateRootBridge (
-  IN PCI_ROOT_BRIDGE       *Bridge
+  IN PCI_ROOT_BRIDGE                *Bridge,
+  IN PCI_ROOT_BRIDGE_TRANSLATION    *Translation
   )
 {
   PCI_ROOT_BRIDGE_INSTANCE *RootBridge;
@@ -87,11 +88,21 @@ CreateRootBridge (
           (Bridge->AllocationAttributes & EFI_PCI_HOST_BRIDGE_MEM64_DECODE) != 0 ? L"Mem64Decode" : L""
           ));
   DEBUG ((EFI_D_INFO, "           Bus: %lx - %lx\n", Bridge->Bus.Base, Bridge->Bus.Limit));
-  DEBUG ((EFI_D_INFO, "            Io: %lx - %lx\n", Bridge->Io.Base, Bridge->Io.Limit));
-  DEBUG ((EFI_D_INFO, "           Mem: %lx - %lx\n", Bridge->Mem.Base, Bridge->Mem.Limit));
-  DEBUG ((EFI_D_INFO, "    MemAbove4G: %lx - %lx\n", Bridge->MemAbove4G.Base, Bridge->MemAbove4G.Limit));
-  DEBUG ((EFI_D_INFO, "          PMem: %lx - %lx\n", Bridge->PMem.Base, Bridge->PMem.Limit));
-  DEBUG ((EFI_D_INFO, "   PMemAbove4G: %lx - %lx\n", Bridge->PMemAbove4G.Base, Bridge->PMemAbove4G.Limit));
+  DEBUG ((DEBUG_INFO, "            Io: %lx - %lx translation=%lx\n",
+          Bridge->Io.Base, Bridge->Io.Limit, Translation->IoTranslation
+          ));
+  DEBUG ((DEBUG_INFO, "           Mem: %lx - %lx translation=%lx\n",
+          Bridge->Mem.Base, Bridge->Mem.Limit, Translation->MemTranslation
+          ));
+  DEBUG ((DEBUG_INFO, "    MemAbove4G: %lx - %lx translation=%lx\n",
+          Bridge->MemAbove4G.Base, Bridge->MemAbove4G.Limit, Translation->MemAbove4GTranslation
+          ));
+  DEBUG ((DEBUG_INFO, "          PMem: %lx - %lx translation=%lx\n",
+          Bridge->PMem.Base, Bridge->PMem.Limit, Translation->PMemTranslation
+          ));
+  DEBUG ((DEBUG_INFO, "   PMemAbove4G: %lx - %lx translation=%lx\n",
+          Bridge->PMemAbove4G.Base, Bridge->PMemAbove4G.Limit, Translation->PMemAbove4GTranslation
+          ));
 
   //
   // Make sure Mem and MemAbove4G apertures are valid
@@ -174,10 +185,15 @@ CreateRootBridge (
 
   CopyMem (&RootBridge->Bus, &Bridge->Bus, sizeof (PCI_ROOT_BRIDGE_APERTURE));
   CopyMem (&RootBridge->Io, &Bridge->Io, sizeof (PCI_ROOT_BRIDGE_APERTURE));
+  RootBridge->IoTranslation = Translation->IoTranslation;
   CopyMem (&RootBridge->Mem, &Bridge->Mem, sizeof (PCI_ROOT_BRIDGE_APERTURE));
+  RootBridge->MemTranslation = Translation->MemTranslation;
   CopyMem (&RootBridge->MemAbove4G, &Bridge->MemAbove4G, sizeof (PCI_ROOT_BRIDGE_APERTURE));
+  RootBridge->MemAbove4GTranslation = Translation->MemAbove4GTranslation;
   CopyMem (&RootBridge->PMem, &Bridge->PMem, sizeof (PCI_ROOT_BRIDGE_APERTURE));
+  RootBridge->PMemTranslation = Translation->PMemTranslation;
   CopyMem (&RootBridge->PMemAbove4G, &Bridge->PMemAbove4G, sizeof (PCI_ROOT_BRIDGE_APERTURE));
+  RootBridge->PMemAbove4GTranslation = Translation->PMemAbove4GTranslation;
 
   for (Index = TypeIo; Index < TypeMax; Index++) {
     switch (Index) {
@@ -397,6 +413,28 @@ RootBridgeIoCheckParameter (
   }
 
   if (Address + MultU64x32 (Count, Size) > Limit + 1) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS
+RootBridgeIoGetMemTranslation (
+  IN PCI_ROOT_BRIDGE_INSTANCE               *RootBridge,
+  IN UINT64                                 Address,
+  IN OUT UINT64                             *Translation
+  )
+{
+  if (Address >= RootBridge->Mem.Base && Address <= RootBridge->Mem.Limit) {
+    *Translation = RootBridge->MemTranslation;
+  } else if (Address >= RootBridge->PMem.Base && Address <= RootBridge->PMem.Limit) {
+    *Translation = RootBridge->PMemTranslation;
+  } else if (Address >= RootBridge->MemAbove4G.Base && Address <= RootBridge->MemAbove4G.Limit) {
+    *Translation = RootBridge->MemAbove4GTranslation;
+  } else if (Address >= RootBridge->PMemAbove4G.Base && Address <= RootBridge->PMemAbove4G.Limit) {
+    *Translation = RootBridge->PMemAbove4GTranslation;
+  } else {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -658,13 +696,22 @@ RootBridgeIoMemRead (
   )
 {
   EFI_STATUS                             Status;
+  PCI_ROOT_BRIDGE_INSTANCE               *RootBridge;
+  UINT64                                 Translation;
 
   Status = RootBridgeIoCheckParameter (This, MemOperation, Width, Address,
                                        Count, Buffer);
   if (EFI_ERROR (Status)) {
     return Status;
   }
-  return mCpuIo->Mem.Read (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address, Count, Buffer);
+
+  RootBridge = ROOT_BRIDGE_FROM_THIS (This);
+  Status = RootBridgeIoGetMemTranslation (RootBridge, Address, &Translation);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return mCpuIo->Mem.Read (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address + Translation, Count, Buffer);
 }
 
 /**
@@ -705,13 +752,22 @@ RootBridgeIoMemWrite (
   )
 {
   EFI_STATUS                             Status;
+  PCI_ROOT_BRIDGE_INSTANCE               *RootBridge;
+  UINT64                                 Translation;
 
   Status = RootBridgeIoCheckParameter (This, MemOperation, Width, Address,
                                        Count, Buffer);
   if (EFI_ERROR (Status)) {
     return Status;
   }
-  return mCpuIo->Mem.Write (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address, Count, Buffer);
+
+  RootBridge = ROOT_BRIDGE_FROM_THIS (This);
+  Status = RootBridgeIoGetMemTranslation (RootBridge, Address, &Translation);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return mCpuIo->Mem.Write (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address + Translation, Count, Buffer);
 }
 
 /**
@@ -746,6 +802,8 @@ RootBridgeIoIoRead (
   )
 {
   EFI_STATUS                                    Status;
+  PCI_ROOT_BRIDGE_INSTANCE                      *RootBridge;
+
   Status = RootBridgeIoCheckParameter (
              This, IoOperation, Width,
              Address, Count, Buffer
@@ -753,7 +811,10 @@ RootBridgeIoIoRead (
   if (EFI_ERROR (Status)) {
     return Status;
   }
-  return mCpuIo->Io.Read (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address, Count, Buffer);
+
+  RootBridge = ROOT_BRIDGE_FROM_THIS (This);
+
+  return mCpuIo->Io.Read (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address + RootBridge->IoTranslation, Count, Buffer);
 }
 
 /**
@@ -788,6 +849,8 @@ RootBridgeIoIoWrite (
   )
 {
   EFI_STATUS                                    Status;
+  PCI_ROOT_BRIDGE_INSTANCE                      *RootBridge;
+
   Status = RootBridgeIoCheckParameter (
              This, IoOperation, Width,
              Address, Count, Buffer
@@ -795,7 +858,10 @@ RootBridgeIoIoWrite (
   if (EFI_ERROR (Status)) {
     return Status;
   }
-  return mCpuIo->Io.Write (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address, Count, Buffer);
+
+  RootBridge = ROOT_BRIDGE_FROM_THIS (This);
+
+  return mCpuIo->Io.Write (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address + RootBridge->IoTranslation, Count, Buffer);
 }
 
 /**
@@ -1621,19 +1687,28 @@ RootBridgeIoConfiguration (
     switch (ResAllocNode->Type) {
 
     case TypeIo:
-      Descriptor->ResType       = ACPI_ADDRESS_SPACE_TYPE_IO;
+      Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_IO;
+      Descriptor->AddrTranslationOffset = RootBridge->IoTranslation;
       break;
 
     case TypePMem32:
-      Descriptor->SpecificFlag = EFI_ACPI_MEMORY_RESOURCE_SPECIFIC_FLAG_CACHEABLE_PREFETCHABLE;
+      Descriptor->SpecificFlag          = EFI_ACPI_MEMORY_RESOURCE_SPECIFIC_FLAG_CACHEABLE_PREFETCHABLE;
+      Descriptor->AddrTranslationOffset = RootBridge->PMemTranslation;
+      Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_MEM;
+      Descriptor->AddrSpaceGranularity  = 32;
     case TypeMem32:
+      Descriptor->AddrTranslationOffset = RootBridge->MemTranslation;
       Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_MEM;
       Descriptor->AddrSpaceGranularity  = 32;
       break;
 
     case TypePMem64:
-      Descriptor->SpecificFlag = EFI_ACPI_MEMORY_RESOURCE_SPECIFIC_FLAG_CACHEABLE_PREFETCHABLE;
+      Descriptor->SpecificFlag          = EFI_ACPI_MEMORY_RESOURCE_SPECIFIC_FLAG_CACHEABLE_PREFETCHABLE;
+      Descriptor->AddrTranslationOffset = RootBridge->PMemAbove4GTranslation;
+      Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_MEM;
+      Descriptor->AddrSpaceGranularity  = 64;
     case TypeMem64:
+      Descriptor->AddrTranslationOffset = RootBridge->MemAbove4GTranslation;
       Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_MEM;
       Descriptor->AddrSpaceGranularity  = 64;
       break;

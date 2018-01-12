@@ -360,16 +360,36 @@ InitializePciHostBridge (
   PCI_HOST_BRIDGE_INSTANCE    *HostBridge;
   PCI_ROOT_BRIDGE_INSTANCE    *RootBridge;
   PCI_ROOT_BRIDGE             *RootBridges;
+  PCI_ROOT_BRIDGE_TRANSLATION *Translations;
   UINTN                       RootBridgeCount;
+  UINTN                       TranslationCount;
   UINTN                       Index;
   PCI_ROOT_BRIDGE_APERTURE    *MemApertures[4];
+  UINT64                      MemTranslation[4];
   UINTN                       MemApertureIndex;
   BOOLEAN                     ResourceAssigned;
   LIST_ENTRY                  *Link;
+  UINT64                      Trans;
 
   RootBridges = PciHostBridgeGetRootBridges (&RootBridgeCount);
   if ((RootBridges == NULL) || (RootBridgeCount == 0)) {
     return EFI_UNSUPPORTED;
+  }
+
+  Translations = PciHostBridgeGetTranslations (&TranslationCount);
+  if (Translations == NULL || TranslationCount == 0) {
+    TranslationCount = 0;
+    Translations = AllocateZeroPool (RootBridgeCount * sizeof (*Translations));
+    if (Translations == NULL) {
+      PciHostBridgeFreeRootBridges (RootBridges, RootBridgeCount);
+      return EFI_OUT_OF_RESOURCES;
+    }
+  }
+
+  if (TranslationCount != 0 && TranslationCount != RootBridgeCount) {
+    DEBUG ((DEBUG_ERROR, "Error: count of root bridges (%d) and translation (%d) are different!\n",
+      RootBridgeCount, TranslationCount));
+    return EFI_INVALID_PARAMETER;
   }
 
   Status = gBS->LocateProtocol (&gEfiMetronomeArchProtocolGuid, NULL, (VOID **) &mMetronome);
@@ -395,7 +415,7 @@ InitializePciHostBridge (
     //
     // Create Root Bridge Handle Instance
     //
-    RootBridge = CreateRootBridge (&RootBridges[Index]);
+    RootBridge = CreateRootBridge (&RootBridges[Index], &Translations[Index]);
     ASSERT (RootBridge != NULL);
     if (RootBridge == NULL) {
       continue;
@@ -411,8 +431,9 @@ InitializePciHostBridge (
     }
 
     if (RootBridges[Index].Io.Base <= RootBridges[Index].Io.Limit) {
+      Trans = Translations[Index].IoTranslation;
       Status = AddIoSpace (
-                 RootBridges[Index].Io.Base,
+                 RootBridges[Index].Io.Base + Trans,
                  RootBridges[Index].Io.Limit - RootBridges[Index].Io.Base + 1
                  );
       ASSERT_EFI_ERROR (Status);
@@ -422,7 +443,7 @@ InitializePciHostBridge (
                         EfiGcdIoTypeIo,
                         0,
                         RootBridges[Index].Io.Limit - RootBridges[Index].Io.Base + 1,
-                        &RootBridges[Index].Io.Base,
+                        &RootBridges[Index].Io.Base + Trans,
                         gImageHandle,
                         NULL
                         );
@@ -437,20 +458,24 @@ InitializePciHostBridge (
     // the MEM aperture in Mem
     //
     MemApertures[0] = &RootBridges[Index].Mem;
+    MemTranslation[0] = Translations[Index].MemTranslation;
     MemApertures[1] = &RootBridges[Index].MemAbove4G;
+    MemTranslation[1] = Translations[Index].MemAbove4GTranslation;
     MemApertures[2] = &RootBridges[Index].PMem;
+    MemTranslation[2] = Translations[Index].PMemTranslation;
     MemApertures[3] = &RootBridges[Index].PMemAbove4G;
+    MemTranslation[3] = Translations[Index].PMemAbove4GTranslation;
 
     for (MemApertureIndex = 0; MemApertureIndex < ARRAY_SIZE (MemApertures); MemApertureIndex++) {
       if (MemApertures[MemApertureIndex]->Base <= MemApertures[MemApertureIndex]->Limit) {
         Status = AddMemoryMappedIoSpace (
-                   MemApertures[MemApertureIndex]->Base,
+                   MemApertures[MemApertureIndex]->Base + MemTranslation[MemApertureIndex],
                    MemApertures[MemApertureIndex]->Limit - MemApertures[MemApertureIndex]->Base + 1,
                    EFI_MEMORY_UC
                    );
         ASSERT_EFI_ERROR (Status);
         Status = gDS->SetMemorySpaceAttributes (
-                        MemApertures[MemApertureIndex]->Base,
+                        MemApertures[MemApertureIndex]->Base + MemTranslation[MemApertureIndex],
                         MemApertures[MemApertureIndex]->Limit - MemApertures[MemApertureIndex]->Base + 1,
                         EFI_MEMORY_UC
                         );
@@ -463,7 +488,7 @@ InitializePciHostBridge (
                           EfiGcdMemoryTypeMemoryMappedIo,
                           0,
                           MemApertures[MemApertureIndex]->Limit - MemApertures[MemApertureIndex]->Base + 1,
-                          &MemApertures[MemApertureIndex]->Base,
+                          &MemApertures[MemApertureIndex]->Base + MemTranslation[MemApertureIndex],
                           gImageHandle,
                           NULL
                           );
@@ -514,7 +539,13 @@ InitializePciHostBridge (
                     );
     ASSERT_EFI_ERROR (Status);
   }
+
   PciHostBridgeFreeRootBridges (RootBridges, RootBridgeCount);
+  if (TranslationCount == 0) {
+    FreePool (Translations);
+  } else {
+    PciHostBridgeFreeTranslations (Translations, TranslationCount);
+  }
 
   if (!EFI_ERROR (Status)) {
     mIoMmuEvent = EfiCreateProtocolNotifyEvent (
@@ -828,7 +859,7 @@ NotifyPhase (
                             FALSE,
                             RootBridge->ResAllocNode[Index].Length,
                             MIN (15, BitsOfAlignment),
-                            ALIGN_VALUE (RootBridge->Io.Base, Alignment + 1),
+                            ALIGN_VALUE (RootBridge->Io.Base, Alignment + 1) + RootBridge->IoTranslation,
                             RootBridge->Io.Limit
                             );
             break;
@@ -838,7 +869,7 @@ NotifyPhase (
                             TRUE,
                             RootBridge->ResAllocNode[Index].Length,
                             MIN (63, BitsOfAlignment),
-                            ALIGN_VALUE (RootBridge->MemAbove4G.Base, Alignment + 1),
+                            ALIGN_VALUE (RootBridge->MemAbove4G.Base, Alignment + 1) + RootBridge->MemAbove4GTranslation,
                             RootBridge->MemAbove4G.Limit
                             );
             if (BaseAddress != MAX_UINT64) {
@@ -853,7 +884,7 @@ NotifyPhase (
                             TRUE,
                             RootBridge->ResAllocNode[Index].Length,
                             MIN (31, BitsOfAlignment),
-                            ALIGN_VALUE (RootBridge->Mem.Base, Alignment + 1),
+                            ALIGN_VALUE (RootBridge->Mem.Base, Alignment + 1) + RootBridge->MemTranslation,
                             RootBridge->Mem.Limit
                             );
             break;
@@ -863,7 +894,7 @@ NotifyPhase (
                             TRUE,
                             RootBridge->ResAllocNode[Index].Length,
                             MIN (63, BitsOfAlignment),
-                            ALIGN_VALUE (RootBridge->PMemAbove4G.Base, Alignment + 1),
+                            ALIGN_VALUE (RootBridge->PMemAbove4G.Base, Alignment + 1) + RootBridge->PMemAbove4GTranslation,
                             RootBridge->PMemAbove4G.Limit
                             );
             if (BaseAddress != MAX_UINT64) {
@@ -877,7 +908,7 @@ NotifyPhase (
                             TRUE,
                             RootBridge->ResAllocNode[Index].Length,
                             MIN (31, BitsOfAlignment),
-                            ALIGN_VALUE (RootBridge->PMem.Base, Alignment + 1),
+                            ALIGN_VALUE (RootBridge->PMem.Base, Alignment + 1) + RootBridge->PMemTranslation,
                             RootBridge->PMem.Limit
                             );
             break;
