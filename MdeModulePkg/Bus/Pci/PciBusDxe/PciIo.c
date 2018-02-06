@@ -1968,6 +1968,11 @@ PciIoGetBarAttributes (
         return EFI_UNSUPPORTED;
       }
     }
+
+    // According to UEFI spec 2.7, we need return CPU view address for PciIo::GetBarAttributes,
+    // and PCI view = CPU view + translation
+    Descriptor->AddrRangeMin -= Descriptor->AddrTranslationOffset;
+    Descriptor->AddrRangeMax -= Descriptor->AddrTranslationOffset;
   }
 
   return EFI_SUCCESS;
