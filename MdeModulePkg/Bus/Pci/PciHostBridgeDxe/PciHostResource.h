@@ -38,6 +38,8 @@ typedef enum {
 
 typedef struct {
   PCI_RESOURCE_TYPE Type;
+  // Base is a host address instead of a device address when address translation
+  // exists and host address != device address
   UINT64            Base;
   UINT64            Length;
   UINT64            Alignment;
