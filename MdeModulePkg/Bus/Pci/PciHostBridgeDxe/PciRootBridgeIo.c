@@ -86,12 +86,23 @@ CreateRootBridge (
           (Bridge->AllocationAttributes & EFI_PCI_HOST_BRIDGE_COMBINE_MEM_PMEM) != 0 ? L"CombineMemPMem " : L"",
           (Bridge->AllocationAttributes & EFI_PCI_HOST_BRIDGE_MEM64_DECODE) != 0 ? L"Mem64Decode" : L""
           ));
+  // We don't see any scenario for bus translation, so translation for bus is just ignored.
   DEBUG ((EFI_D_INFO, "           Bus: %lx - %lx\n", Bridge->Bus.Base, Bridge->Bus.Limit));
-  DEBUG ((EFI_D_INFO, "            Io: %lx - %lx\n", Bridge->Io.Base, Bridge->Io.Limit));
-  DEBUG ((EFI_D_INFO, "           Mem: %lx - %lx\n", Bridge->Mem.Base, Bridge->Mem.Limit));
-  DEBUG ((EFI_D_INFO, "    MemAbove4G: %lx - %lx\n", Bridge->MemAbove4G.Base, Bridge->MemAbove4G.Limit));
-  DEBUG ((EFI_D_INFO, "          PMem: %lx - %lx\n", Bridge->PMem.Base, Bridge->PMem.Limit));
-  DEBUG ((EFI_D_INFO, "   PMemAbove4G: %lx - %lx\n", Bridge->PMemAbove4G.Base, Bridge->PMemAbove4G.Limit));
+  DEBUG ((DEBUG_INFO, "            Io: %lx - %lx translation=%lx\n",
+          Bridge->Io.Base, Bridge->Io.Limit, Bridge->Io.Translation
+          ));
+  DEBUG ((DEBUG_INFO, "           Mem: %lx - %lx translation=%lx\n",
+          Bridge->Mem.Base, Bridge->Mem.Limit, Bridge->Mem.Translation
+          ));
+  DEBUG ((DEBUG_INFO, "    MemAbove4G: %lx - %lx translation=%lx\n",
+          Bridge->MemAbove4G.Base, Bridge->MemAbove4G.Limit, Bridge->MemAbove4G.Translation
+          ));
+  DEBUG ((DEBUG_INFO, "          PMem: %lx - %lx translation=%lx\n",
+          Bridge->PMem.Base, Bridge->PMem.Limit, Bridge->PMem.Translation
+          ));
+  DEBUG ((DEBUG_INFO, "   PMemAbove4G: %lx - %lx translation=%lx\n",
+          Bridge->PMemAbove4G.Base, Bridge->PMemAbove4G.Limit, Bridge->PMemAbove4G.Translation
+          ));
 
   //
   // Make sure Mem and MemAbove4G apertures are valid
@@ -206,7 +217,10 @@ CreateRootBridge (
     }
     RootBridge->ResAllocNode[Index].Type     = Index;
     if (Bridge->ResourceAssigned && (Aperture->Limit >= Aperture->Base)) {
-      RootBridge->ResAllocNode[Index].Base   = Aperture->Base;
+      // Base in ResAllocNode is a host address, while Base in Aperture is a
+      // device address, so translation needs to be subtracted.
+      RootBridge->ResAllocNode[Index].Base   = Aperture->Base -
+        Aperture->Translation;
       RootBridge->ResAllocNode[Index].Length = Aperture->Limit - Aperture->Base + 1;
       RootBridge->ResAllocNode[Index].Status = ResAllocated;
     } else {
@@ -397,6 +411,28 @@ RootBridgeIoCheckParameter (
   }
 
   if (Address + MultU64x32 (Count, Size) > Limit + 1) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS
+RootBridgeIoGetMemTranslationByAddress (
+  IN PCI_ROOT_BRIDGE_INSTANCE               *RootBridge,
+  IN UINT64                                 Address,
+  IN OUT UINT64                             *Translation
+  )
+{
+  if (Address >= RootBridge->Mem.Base && Address <= RootBridge->Mem.Limit) {
+    *Translation = RootBridge->Mem.Translation;
+  } else if (Address >= RootBridge->PMem.Base && Address <= RootBridge->PMem.Limit) {
+    *Translation = RootBridge->PMem.Translation;
+  } else if (Address >= RootBridge->MemAbove4G.Base && Address <= RootBridge->MemAbove4G.Limit) {
+    *Translation = RootBridge->MemAbove4G.Translation;
+  } else if (Address >= RootBridge->PMemAbove4G.Base && Address <= RootBridge->PMemAbove4G.Limit) {
+    *Translation = RootBridge->PMemAbove4G.Translation;
+  } else {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -658,13 +694,24 @@ RootBridgeIoMemRead (
   )
 {
   EFI_STATUS                             Status;
+  PCI_ROOT_BRIDGE_INSTANCE               *RootBridge;
+  UINT64                                 Translation;
 
   Status = RootBridgeIoCheckParameter (This, MemOperation, Width, Address,
                                        Count, Buffer);
   if (EFI_ERROR (Status)) {
     return Status;
   }
-  return mCpuIo->Mem.Read (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address, Count, Buffer);
+
+  RootBridge = ROOT_BRIDGE_FROM_THIS (This);
+  Status = RootBridgeIoGetMemTranslationByAddress (RootBridge, Address, &Translation);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  // Address passed to CpuIo->Mem.Read should be a host address instead of
+  // device address, so Translation should be subtracted.
+  return mCpuIo->Mem.Read (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address - Translation, Count, Buffer);
 }
 
 /**
@@ -705,13 +752,24 @@ RootBridgeIoMemWrite (
   )
 {
   EFI_STATUS                             Status;
+  PCI_ROOT_BRIDGE_INSTANCE               *RootBridge;
+  UINT64                                 Translation;
 
   Status = RootBridgeIoCheckParameter (This, MemOperation, Width, Address,
                                        Count, Buffer);
   if (EFI_ERROR (Status)) {
     return Status;
   }
-  return mCpuIo->Mem.Write (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address, Count, Buffer);
+
+  RootBridge = ROOT_BRIDGE_FROM_THIS (This);
+  Status = RootBridgeIoGetMemTranslationByAddress (RootBridge, Address, &Translation);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  // Address passed to CpuIo->Mem.Write should be a host address instead of
+  // device address, so Translation should be subtracted.
+  return mCpuIo->Mem.Write (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address - Translation, Count, Buffer);
 }
 
 /**
@@ -746,6 +804,8 @@ RootBridgeIoIoRead (
   )
 {
   EFI_STATUS                                    Status;
+  PCI_ROOT_BRIDGE_INSTANCE                      *RootBridge;
+
   Status = RootBridgeIoCheckParameter (
              This, IoOperation, Width,
              Address, Count, Buffer
@@ -753,7 +813,12 @@ RootBridgeIoIoRead (
   if (EFI_ERROR (Status)) {
     return Status;
   }
-  return mCpuIo->Io.Read (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address, Count, Buffer);
+
+  RootBridge = ROOT_BRIDGE_FROM_THIS (This);
+
+  // Address passed to CpuIo->Io.Read should be a host address instead of
+  // device address, so Translation should be subtracted.
+  return mCpuIo->Io.Read (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address - RootBridge->Io.Translation, Count, Buffer);
 }
 
 /**
@@ -788,6 +853,8 @@ RootBridgeIoIoWrite (
   )
 {
   EFI_STATUS                                    Status;
+  PCI_ROOT_BRIDGE_INSTANCE                      *RootBridge;
+
   Status = RootBridgeIoCheckParameter (
              This, IoOperation, Width,
              Address, Count, Buffer
@@ -795,7 +862,12 @@ RootBridgeIoIoWrite (
   if (EFI_ERROR (Status)) {
     return Status;
   }
-  return mCpuIo->Io.Write (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address, Count, Buffer);
+
+  RootBridge = ROOT_BRIDGE_FROM_THIS (This);
+
+  // Address passed to CpuIo->Io.Write should be a host address instead of
+  // device address, so Translation should be subtracted.
+  return mCpuIo->Io.Write (mCpuIo, (EFI_CPU_IO_PROTOCOL_WIDTH) Width, Address - RootBridge->Io.Translation, Count, Buffer);
 }
 
 /**
@@ -1615,25 +1687,39 @@ RootBridgeIoConfiguration (
 
     Descriptor->Desc = ACPI_ADDRESS_SPACE_DESCRIPTOR;
     Descriptor->Len  = sizeof (EFI_ACPI_ADDRESS_SPACE_DESCRIPTOR) - 3;
+    // According to UEFI 2.7, RootBridgeIo->Configuration should return address
+    // range in CPU view (host address), and ResAllocNode->Base is already a CPU
+    // view address (host address).
     Descriptor->AddrRangeMin  = ResAllocNode->Base;
     Descriptor->AddrRangeMax  = ResAllocNode->Base + ResAllocNode->Length - 1;
     Descriptor->AddrLen       = ResAllocNode->Length;
     switch (ResAllocNode->Type) {
 
     case TypeIo:
-      Descriptor->ResType       = ACPI_ADDRESS_SPACE_TYPE_IO;
+      Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_IO;
+      Descriptor->AddrTranslationOffset = RootBridge->Io.Translation;
       break;
 
     case TypePMem32:
-      Descriptor->SpecificFlag = EFI_ACPI_MEMORY_RESOURCE_SPECIFIC_FLAG_CACHEABLE_PREFETCHABLE;
+      Descriptor->SpecificFlag          = EFI_ACPI_MEMORY_RESOURCE_SPECIFIC_FLAG_CACHEABLE_PREFETCHABLE;
+      Descriptor->AddrTranslationOffset = RootBridge->PMem.Translation;
+      Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_MEM;
+      Descriptor->AddrSpaceGranularity  = 32;
+      break;
+
     case TypeMem32:
+      Descriptor->AddrTranslationOffset = RootBridge->Mem.Translation;
       Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_MEM;
       Descriptor->AddrSpaceGranularity  = 32;
       break;
 
     case TypePMem64:
-      Descriptor->SpecificFlag = EFI_ACPI_MEMORY_RESOURCE_SPECIFIC_FLAG_CACHEABLE_PREFETCHABLE;
+      Descriptor->SpecificFlag          = EFI_ACPI_MEMORY_RESOURCE_SPECIFIC_FLAG_CACHEABLE_PREFETCHABLE;
+      Descriptor->AddrTranslationOffset = RootBridge->PMemAbove4G.Translation;
+      Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_MEM;
+      Descriptor->AddrSpaceGranularity  = 64;
     case TypeMem64:
+      Descriptor->AddrTranslationOffset = RootBridge->MemAbove4G.Translation;
       Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_MEM;
       Descriptor->AddrSpaceGranularity  = 64;
       break;
