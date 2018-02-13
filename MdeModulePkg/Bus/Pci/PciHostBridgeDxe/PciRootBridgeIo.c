@@ -1719,14 +1719,15 @@ RootBridgeIoConfiguration (
       break;
     }
 
+    // According to UEFI 2.7, RootBridgeIo::Configuration should return address
+    // range in CPU view, and TranslationOffset = PCI view - CPU view.
+    Descriptor->AddrRangeMin  = ResAllocNode->Base -
+      Descriptor->AddrTranslationOffset;
+    Descriptor->AddrRangeMax  = ResAllocNode->Base + ResAllocNode->Length - 1 -
+      Descriptor->AddrTranslationOffset;
+
     Descriptor++;
   }
-  // According to UEFI 2.7, RootBridgeIo::Configuration should return address
-  // range in CPU view, and TranslationOffset = PCI view - CPU view.
-  Descriptor->AddrRangeMin  = ResAllocNode->Base -
-    Descriptor->AddrTranslationOffset;
-  Descriptor->AddrRangeMax  = ResAllocNode->Base + ResAllocNode->Length - 1 -
-    Descriptor->AddrTranslationOffset;
   //
   // Terminate the entries.
   //
