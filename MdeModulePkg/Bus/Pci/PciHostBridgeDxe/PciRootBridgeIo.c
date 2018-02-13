@@ -1676,10 +1676,6 @@ RootBridgeIoConfiguration (
 
     Descriptor->Desc = ACPI_ADDRESS_SPACE_DESCRIPTOR;
     Descriptor->Len  = sizeof (EFI_ACPI_ADDRESS_SPACE_DESCRIPTOR) - 3;
-    // According to UEFI 2.7, RootBridgeIo::Configuration should return address
-    // range in CPU view, and TranslationOffset = PCI view - CPU view.
-    Descriptor->AddrRangeMin  = ResAllocNode->Base;
-    Descriptor->AddrRangeMax  = ResAllocNode->Base + ResAllocNode->Length - 1;
     Descriptor->AddrLen       = ResAllocNode->Length;
     switch (ResAllocNode->Type) {
 
@@ -1688,29 +1684,29 @@ RootBridgeIoConfiguration (
       // According to UEFI 2.7, translation = PCI address - CPU address,
       // so we change the sign here to make it consistent with UEFI spec.
       // The other translations will be treated as the same.
-      Descriptor->AddrTranslationOffset = -RootBridge->Io.Translation;
+      Descriptor->AddrTranslationOffset = RootBridge->Io.Translation;
       break;
 
     case TypePMem32:
       Descriptor->SpecificFlag          = EFI_ACPI_MEMORY_RESOURCE_SPECIFIC_FLAG_CACHEABLE_PREFETCHABLE;
-      Descriptor->AddrTranslationOffset = -RootBridge->PMem.Translation;
+      Descriptor->AddrTranslationOffset = RootBridge->PMem.Translation;
       Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_MEM;
       Descriptor->AddrSpaceGranularity  = 32;
       break;
 
     case TypeMem32:
-      Descriptor->AddrTranslationOffset = -RootBridge->Mem.Translation;
+      Descriptor->AddrTranslationOffset = RootBridge->Mem.Translation;
       Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_MEM;
       Descriptor->AddrSpaceGranularity  = 32;
       break;
 
     case TypePMem64:
       Descriptor->SpecificFlag          = EFI_ACPI_MEMORY_RESOURCE_SPECIFIC_FLAG_CACHEABLE_PREFETCHABLE;
-      Descriptor->AddrTranslationOffset = -RootBridge->PMemAbove4G.Translation;
+      Descriptor->AddrTranslationOffset = RootBridge->PMemAbove4G.Translation;
       Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_MEM;
       Descriptor->AddrSpaceGranularity  = 64;
     case TypeMem64:
-      Descriptor->AddrTranslationOffset = -RootBridge->MemAbove4G.Translation;
+      Descriptor->AddrTranslationOffset = RootBridge->MemAbove4G.Translation;
       Descriptor->ResType               = ACPI_ADDRESS_SPACE_TYPE_MEM;
       Descriptor->AddrSpaceGranularity  = 64;
       break;
@@ -1725,6 +1721,12 @@ RootBridgeIoConfiguration (
 
     Descriptor++;
   }
+  // According to UEFI 2.7, RootBridgeIo::Configuration should return address
+  // range in CPU view, and TranslationOffset = PCI view - CPU view.
+  Descriptor->AddrRangeMin  = ResAllocNode->Base -
+    Descriptor->AddrTranslationOffset;
+  Descriptor->AddrRangeMax  = ResAllocNode->Base + ResAllocNode->Length - 1 -
+    Descriptor->AddrTranslationOffset;
   //
   // Terminate the entries.
   //
