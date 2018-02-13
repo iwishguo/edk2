@@ -1814,8 +1814,8 @@ GetMmioAddressTranslationOffset (
 
   while (Configuration->Desc == ACPI_ADDRESS_SPACE_DESCRIPTOR) {
     if ((Configuration->ResType == ACPI_ADDRESS_SPACE_TYPE_MEM) &&
-        (Configuration->AddrRangeMin + Configuration->AddrTranslationOffset <= AddrRangeMin) &&
-        (Configuration->AddrRangeMin + Configuration->AddrLen + Configuration->AddrTranslationOffset >= AddrRangeMin + AddrLen)
+        (Configuration->AddrRangeMin <= AddrRangeMin) &&
+        (Configuration->AddrRangeMin + Configuration->AddrLen >= AddrRangeMin + AddrLen)
         ) {
       return Configuration->AddrTranslationOffset;
     }
@@ -1968,11 +1968,6 @@ PciIoGetBarAttributes (
         return EFI_UNSUPPORTED;
       }
     }
-
-    // According to UEFI spec 2.7, we need return CPU view address for PciIo::GetBarAttributes,
-    // and PCI view = CPU view + translation
-    Descriptor->AddrRangeMin -= Descriptor->AddrTranslationOffset;
-    Descriptor->AddrRangeMax -= Descriptor->AddrTranslationOffset;
   }
 
   return EFI_SUCCESS;
