@@ -108,6 +108,12 @@ CHAR16 *
 #define BM_OPTION_NAME_LEN                          sizeof ("PlatformRecovery####")
 extern CHAR16  *mBmLoadOptionName[];
 
+//
+// Maximum number of reconnect retry to repair controller; it is to limit the
+// number of recursive call of BmRepairAllControllers.
+//
+#define MAX_RECONNECT_REPAIR                        10
+
 /**
   Visitor function to be called by BmForEachVariable for each variable
   in variable storage.

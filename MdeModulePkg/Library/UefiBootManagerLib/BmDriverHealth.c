@@ -26,6 +26,12 @@ GLOBAL_REMOVE_IF_UNREFERENCED
     L"Reboot Required"
     };
 
+//
+// Counter of reconnect retry to repair controller; it is to limit the
+// number of recursive call of BmRepairAllControllers.
+//
+STATIC UINTN mReconnectRepairCount;
+
 /**
   Return the controller name.
 
@@ -549,7 +555,16 @@ BmRepairAllControllers (
 
 
   if (ReconnectRequired) {
-    BmRepairAllControllers ();
+    if (mReconnectRepairCount < MAX_RECONNECT_REPAIR) {
+      mReconnectRepairCount++;
+      BmRepairAllControllers ();
+    } else {
+      DEBUG ((DEBUG_ERROR, "[%a:%d] Repair failed after %d retries.\n",
+        __FUNCTION__, __LINE__, mReconnectRepairCount));
+      // Reset counter so that it will not affect calling
+      // BmRepairAllControllers() somewhere else
+      mReconnectRepairCount = 0;
+    }
   }
 
   DEBUG_CODE (
