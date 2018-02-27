@@ -222,10 +222,15 @@ CreateRootBridge (
     }
     RootBridge->ResAllocNode[Index].Type     = Index;
     if (Bridge->ResourceAssigned && (Aperture->Limit >= Aperture->Base)) {
-      // Base in ResAllocNode is a host address, while Base in Aperture is a
-      // device address, so translation needs to be subtracted.
-      RootBridge->ResAllocNode[Index].Base   = Aperture->Base -
-        Aperture->Translation;
+      // Ignore translation for bus
+      if (Index == TypeBus) {
+        RootBridge->ResAllocNode[Index].Base   = Aperture->Base;
+      } else {
+        // Base in ResAllocNode is a host address, while Base in Aperture is a
+        // device address, so translation needs to be subtracted.
+        RootBridge->ResAllocNode[Index].Base   = Aperture->Base -
+          Aperture->Translation;
+      }
       RootBridge->ResAllocNode[Index].Length = Aperture->Limit - Aperture->Base + 1;
       RootBridge->ResAllocNode[Index].Status = ResAllocated;
     } else {
