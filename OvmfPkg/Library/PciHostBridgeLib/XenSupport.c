@@ -193,6 +193,11 @@ ScanForRootBridges (
 
   *NumberOfRootBridges = 0;
   RootBridges = NULL;
+  ZeroMem (&Io, sizeof (Io));
+  ZeroMem (&Mem, sizeof (Mem));
+  ZeroMem (&MemAbove4G, sizeof (MemAbove4G));
+  ZeroMem (&PMem, sizeof (PMem));
+  ZeroMem (&PMemAbove4G, sizeof (PMemAbove4G));
 
   //
   // After scanning all the PCI devices on the PCI root bridge's primary bus,
