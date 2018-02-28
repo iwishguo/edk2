@@ -217,6 +217,10 @@ PciHostBridgeGetRootBridges (
   PCI_ROOT_BRIDGE_APERTURE Mem;
   PCI_ROOT_BRIDGE_APERTURE MemAbove4G;
 
+  ZeroMem (&Io, sizeof (Io));
+  ZeroMem (&Mem, sizeof (Mem));
+  ZeroMem (&MemAbove4G, sizeof (MemAbove4G));
+
   if (PcdGetBool (PcdPciDisableBusEnumeration)) {
     return ScanForRootBridges (Count);
   }
